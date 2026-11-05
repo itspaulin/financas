@@ -1,0 +1,14 @@
+{
+  "members": {
+    "Alice": "alice@example.com",
+    "Bob": "bob@example.com"
+  },
+  "account_owners": {
+    "nubank alice": "Alice",
+    "inter bob": "Bob"
+  },
+  "closing_days": {
+    "nubank alice": 10,
+    "inter bob": 1
+  }
+}

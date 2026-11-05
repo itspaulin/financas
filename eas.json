@@ -1,0 +1,23 @@
+{
+  "cli": {
+    "version": ">= 16.0.0",
+    "appVersionSource": "remote"
+  },
+  "build": {
+    "development": {
+      "developmentClient": true,
+      "distribution": "internal"
+    },
+    "preview": {
+      "distribution": "internal",
+      "env": { "APP_ORIGIN": "https://elluizdev-financas.expo.app" }
+    },
+    "production": {
+      "autoIncrement": true,
+      "env": { "APP_ORIGIN": "https://elluizdev-financas.expo.app" }
+    }
+  },
+  "submit": {
+    "production": {}
+  }
+}
