@@ -233,6 +233,13 @@ const routes: Route[] = [
     },
   },
   {
+    method: 'DELETE',
+    pattern: new RegExp(`^recurring/${ID}/${ID}$`),
+    handler: async (request, [kind, id]) => (
+      await finance.deleteRecurring(await hidOf(request), recurringKind.parse(kind), uuid.parse(id)), ok()
+    ),
+  },
+  {
     method: 'POST',
     pattern: /^categories$/,
     handler: async (request) => {
