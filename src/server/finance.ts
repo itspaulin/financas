@@ -85,6 +85,7 @@ function activeIn<T extends typeof recurringExpenses | typeof recurringIncomes>(
   return and(
     eq(table.householdId, hid),
     eq(table.active, true),
+    isNull(table.deletedAt),
     lte(table.startsOn, monthEnd(month)),
     or(isNull(table.endsOn), gte(table.endsOn, monthStart(month))),
   );
@@ -436,7 +437,7 @@ export async function updateExpense(hid: string, id: string, input: ExpenseUpdat
     db
       .update(recurringExpenses)
       .set({ ...template, ...(!current.recurrenceContinues && { active: true, endsOn: null }) })
-      .where(eq(recurringExpenses.id, templateId)),
+      .where(and(eq(recurringExpenses.id, templateId), isNull(recurringExpenses.deletedAt))),
     // Occurrences dropped when the recurrence ended are removed for good so they can be generated again.
     db
       .delete(expenses)
@@ -583,7 +584,7 @@ export async function updateIncome(hid: string, id: string, input: IncomeUpdate)
         memberId: fields.memberId,
         ...(!current.recurrenceContinues && { active: true, endsOn: null }),
       })
-      .where(eq(recurringIncomes.id, templateId)),
+      .where(and(eq(recurringIncomes.id, templateId), isNull(recurringIncomes.deletedAt))),
     // Occurrences dropped when the recurrence ended are removed for good so they can be generated again.
     db
       .delete(incomes)
@@ -929,8 +930,8 @@ export async function deletePlan(hid: string, id: string): Promise<void> {
 export async function listRecurring(hid: string): Promise<Recurring[]> {
   const db = getDb();
   const [expenseRows, incomeRows] = await db.batch([
-    db.select().from(recurringExpenses).where(eq(recurringExpenses.householdId, hid)).orderBy(asc(recurringExpenses.dayOfMonth)),
-    db.select().from(recurringIncomes).where(eq(recurringIncomes.householdId, hid)).orderBy(asc(recurringIncomes.dayOfMonth)),
+    db.select().from(recurringExpenses).where(and(eq(recurringExpenses.householdId, hid), isNull(recurringExpenses.deletedAt))).orderBy(asc(recurringExpenses.dayOfMonth)),
+    db.select().from(recurringIncomes).where(and(eq(recurringIncomes.householdId, hid), isNull(recurringIncomes.deletedAt))).orderBy(asc(recurringIncomes.dayOfMonth)),
   ]);
   return [
     ...expenseRows.map((r) => ({
@@ -977,7 +978,7 @@ export async function updateRecurring(
   const set = { ...(changes.amountCents !== undefined && { amountCents: changes.amountCents }), ...(startsOn && { startsOn }) };
   if (!Object.keys(set).length) return;
   if (kind === 'expense') {
-    const [row] = await db.update(recurringExpenses).set(set).where(and(eq(recurringExpenses.id, id), eq(recurringExpenses.householdId, hid))).returning({ id: recurringExpenses.id });
+    const [row] = await db.update(recurringExpenses).set(set).where(and(eq(recurringExpenses.id, id), eq(recurringExpenses.householdId, hid), isNull(recurringExpenses.deletedAt))).returning({ id: recurringExpenses.id });
     if (!row) notFound();
     if (startsOn) {
       await db
@@ -998,7 +999,7 @@ export async function updateRecurring(
         .where(and(eq(expenses.recurringExpenseId, id), gt(expenses.recurrenceMonth, after), eq(expenses.paid, false), isNull(expenses.deletedAt)));
     }
   } else {
-    const [row] = await db.update(recurringIncomes).set(set).where(and(eq(recurringIncomes.id, id), eq(recurringIncomes.householdId, hid))).returning({ id: recurringIncomes.id });
+    const [row] = await db.update(recurringIncomes).set(set).where(and(eq(recurringIncomes.id, id), eq(recurringIncomes.householdId, hid), isNull(recurringIncomes.deletedAt))).returning({ id: recurringIncomes.id });
     if (!row) notFound();
     if (startsOn) {
       await db
@@ -1022,7 +1023,7 @@ export async function setRecurringActive(hid: string, kind: 'expense' | 'income'
     const [row] = await db
       .update(recurringExpenses)
       .set({ active: true, endsOn })
-      .where(and(eq(recurringExpenses.id, id), eq(recurringExpenses.householdId, hid)))
+      .where(and(eq(recurringExpenses.id, id), eq(recurringExpenses.householdId, hid), isNull(recurringExpenses.deletedAt)))
       .returning({ id: recurringExpenses.id });
     if (!row) notFound();
     if (!active) {
@@ -1035,7 +1036,7 @@ export async function setRecurringActive(hid: string, kind: 'expense' | 'income'
     const [row] = await db
       .update(recurringIncomes)
       .set({ active: true, endsOn })
-      .where(and(eq(recurringIncomes.id, id), eq(recurringIncomes.householdId, hid)))
+      .where(and(eq(recurringIncomes.id, id), eq(recurringIncomes.householdId, hid), isNull(recurringIncomes.deletedAt)))
       .returning({ id: recurringIncomes.id });
     if (!row) notFound();
     if (!active) {
@@ -1044,6 +1045,52 @@ export async function setRecurringActive(hid: string, kind: 'expense' | 'income'
         .set({ deletedAt: new Date() })
         .where(and(eq(incomes.recurringIncomeId, id), gt(incomes.recurrenceMonth, monthStart(month)), isNull(incomes.deletedAt)));
     }
+  }
+}
+
+// Soft-deletes the template and its entries from this month on, so it leaves the list and is never
+// generated again. Paid entries and earlier months stay as history.
+export async function deleteRecurring(hid: string, kind: 'expense' | 'income', id: string): Promise<void> {
+  const db = getDb();
+  const from = monthStart(monthOf(today()));
+  const now = new Date();
+  if (kind === 'expense') {
+    const [row] = await db
+      .update(recurringExpenses)
+      .set({ active: false, deletedAt: now })
+      .where(and(eq(recurringExpenses.id, id), eq(recurringExpenses.householdId, hid), isNull(recurringExpenses.deletedAt)))
+      .returning({ id: recurringExpenses.id });
+    if (!row) notFound();
+    await db
+      .update(expenses)
+      .set({ deletedAt: now })
+      .where(
+        and(
+          eq(expenses.recurringExpenseId, id),
+          eq(expenses.householdId, hid),
+          gte(expenses.recurrenceMonth, from),
+          eq(expenses.paid, false),
+          isNull(expenses.deletedAt),
+        ),
+      );
+  } else {
+    const [row] = await db
+      .update(recurringIncomes)
+      .set({ active: false, deletedAt: now })
+      .where(and(eq(recurringIncomes.id, id), eq(recurringIncomes.householdId, hid), isNull(recurringIncomes.deletedAt)))
+      .returning({ id: recurringIncomes.id });
+    if (!row) notFound();
+    await db
+      .update(incomes)
+      .set({ deletedAt: now })
+      .where(
+        and(
+          eq(incomes.recurringIncomeId, id),
+          eq(incomes.householdId, hid),
+          gte(incomes.recurrenceMonth, from),
+          isNull(incomes.deletedAt),
+        ),
+      );
   }
 }
 

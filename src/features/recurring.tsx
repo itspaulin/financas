@@ -21,7 +21,7 @@ const COLUMNS: Column[] = [
   { key: 'detail', label: 'Categoria · cartão', flex: 2 },
   { key: 'member', label: 'Quem', flex: 0.7 },
   { key: 'status', label: 'Status', flex: 0.8 },
-  { key: 'actions', label: 'Ações', flex: 1.6, align: 'right' },
+  { key: 'actions', label: 'Ações', flex: 2.2, align: 'right' },
 ];
 
 function detailOf(r: Recurring, lookups: Lookups) {
@@ -61,6 +61,23 @@ function useRecurringActions(reload: () => void) {
         if (!ok) return;
       }
       await patch(r, { active: !r.active });
+    },
+    async remove(r: Recurring) {
+      const ok = await ask({
+        title: `Excluir ${r.description}?`,
+        message: 'Sai da lista e os lançamentos não pagos deste mês em diante são removidos. Pagos e meses anteriores ficam.',
+        action: 'Excluir',
+        danger: true,
+      });
+      if (!ok) return;
+      setError(null);
+      try {
+        await api(`/recurring/${r.kind}/${r.id}`, { method: 'DELETE' });
+        changed();
+        reload();
+      } catch (e) {
+        setError(e instanceof Error ? e.message : 'Erro');
+      }
     },
   };
 }
@@ -183,6 +200,7 @@ function RecurringTable({
                       }}
                     />
                     <Button title={r.active ? 'Parar' : 'Retomar'} size="sm" variant="outline" onPress={() => actions.toggle(r)} />
+                    <Button title="Excluir" size="sm" variant="outline" onPress={() => actions.remove(r)} />
                   </View>
                 ),
               }}
@@ -212,7 +230,10 @@ function MobileRecurringList({ items, lookups, actions }: { items: Recurring[]; 
             <Txt size={15} weight={700} numeric color={r.kind === 'income' ? c.ok : c.text}>
               {formatMoney(r.amountCents)}
             </Txt>
-            <Button title={r.active ? 'Parar' : 'Retomar'} size="sm" variant="outline" onPress={() => actions.toggle(r)} />
+            <View style={styles.actions}>
+              <Button title={r.active ? 'Parar' : 'Retomar'} size="sm" variant="outline" onPress={() => actions.toggle(r)} />
+              <Button title="Excluir" size="sm" variant="outline" onPress={() => actions.remove(r)} />
+            </View>
           </View>
         </View>
       ))}

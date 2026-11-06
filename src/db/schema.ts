@@ -155,6 +155,8 @@ export const recurringExpenses = pgTable(
     startsOn: day('starts_on').notNull(),
     endsOn: day('ends_on'),
     active: boolean('active').notNull().default(true),
+    // Soft delete: the template leaves the list and is never generated again, history stays.
+    deletedAt: timestamp('deleted_at', { withTimezone: true }),
     createdAt: createdAt(),
     updatedAt: updatedAt(),
   },
@@ -271,6 +273,8 @@ export const recurringIncomes = pgTable(
     startsOn: day('starts_on').notNull(),
     endsOn: day('ends_on'),
     active: boolean('active').notNull().default(true),
+    // Soft delete: the template leaves the list and is never generated again, history stays.
+    deletedAt: timestamp('deleted_at', { withTimezone: true }),
     createdAt: createdAt(),
     updatedAt: updatedAt(),
   },
